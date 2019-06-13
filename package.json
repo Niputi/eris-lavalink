@@ -1,27 +1,26 @@
 {
-  "name": "eris-lavalink",
-  "version": "1.0.2",
+  "name": "eris-lavalink-ts",
+  "version": "2.0.0",
   "license": "MIT",
   "description": "A Lavalink client for eris",
-  "homepage": "https://github.com/briantanner/eris-lavalink",
-  "author": {
-    "name": "Brian Tanner",
-    "email": "brian@tanner.io"
-  },
+  "homepage": "https://github.com/Niputi/eris-lavalink",
+  "author": "Niputi",
   "repository": {
     "type": "git",
-    "url": "https://github.com/briantanner/eris-lavalink.git"
+    "url": "https://github.com/Niputi/eris-lavalink.git"
   },
   "bugs": {
-    "url": "https://github.com/briantanner/eris-lavalink/issues"
+    "url": "https://github.com/Niputi/eris-lavalink/issues"
   },
-  "main": "src/index.js",
+  "main": "dist/index.js",
+  "types": "types/index.d.ts",
   "engineStrict": true,
   "dependencies": {
     "eris": "github:abalabahaha/eris#dev",
-    "ws": "^3.1.0"
+    "ws": "^7.0.0"
   },
   "devDependencies": {
-    "docdash": "^0.4.0"
+    "@types/node": "^12.0.8",
+    "@types/ws": "^6.0.1"
   }
 }

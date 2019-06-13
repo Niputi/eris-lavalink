@@ -1,12 +1,8 @@
-const Constants = require('eris').Constants;
+import { Constants, Shard } from "eris";
+import { EventEmitter } from "events";
+import PlayerManager from "./PlayerManager";
+import Lavalink from "./Lavalink";
 
-var EventEmitter;
-
-try {
-    EventEmitter = require('eventemitter3');
-} catch (err) {
-    EventEmitter = require('events').EventEmitter;
-}
 
 /**
  * Represents a player/voice connection to Lavalink
@@ -24,6 +20,24 @@ try {
  * @prop {string} track The lavalink track to play
  */
 class Player extends EventEmitter {
+    id: string;
+    node: Lavalink;
+    hostname: string;
+    guildId: string;
+    channelId: string;
+    manager: PlayerManager;
+    ready: boolean;
+    playing: boolean;
+    paused: boolean;
+    shard: Shard;
+    state: { position?: number };
+    track: string;
+    sendQueue: any[];
+    timestamp: number;
+    lastTrack: string;
+    playOptions: object;
+    options: Object;
+    
     /**
      * Player constructor
      * @param {string} id Guild ID
@@ -36,19 +50,19 @@ class Player extends EventEmitter {
      * @param {Shard} data.shard The eris shard associated with this player
      * @param {Object} [data.options] Additional passed from the user to the player
      */
-    constructor(id, { hostname, guildId, channelId, shard, node, manager, options }) {
+    constructor(id: string, options: {channelId: string, guildId: string, hostname: string, manager: PlayerManager, node: Lavalink, shard: Shard, options?: Object}) {
         super();
         this.id = id;
-        this.node = node;
-        this.hostname = hostname;
-        this.guildId = guildId;
-        this.channelId = channelId;
-        this.manager = manager || null;
-        this.options = options;
+        this.node = options.node;
+        this.hostname = options.hostname;
+        this.guildId = options.guildId;
+        this.channelId = options.channelId;
+        this.manager = options.manager || null;
+        this.options = options.options;
         this.ready = false;
         this.playing = false;
         this.paused = false;
-        this.shard = shard;
+        this.shard = options.shard;
         this.state = {};
         this.track = null;
         this.sendQueue = [];
@@ -71,7 +85,7 @@ class Player extends EventEmitter {
      * @param {*} data The payload to queue
      * @private
      */
-    queueEvent(data) {
+    queueEvent(data: any) {
         if (this.sendQueue.length > 0) {
             this.sendQueue.push(data);
         } else {
@@ -84,7 +98,7 @@ class Player extends EventEmitter {
      * @param {*} data The payload to send
      * @private
      */
-    async sendEvent(data) {
+    async sendEvent(data: any) {
         this.node.send(data);
         process.nextTick(() => this.checkEventQueue());
     }
@@ -97,7 +111,7 @@ class Player extends EventEmitter {
      * @param {object} data.event The event data from the voice server update
      * @returns {void}
      */
-    connect(data) {
+    connect(data: {guildId: string, sessionId: string, event: Object}): void {
         this.emit('connect');
         this.queueEvent({
             op: 'voiceUpdate',
@@ -114,7 +128,7 @@ class Player extends EventEmitter {
      * @param {*} [msg] An optional disconnect message
      * @returns {void}
      */
-    disconnect(msg) {
+    disconnect(msg?: any): void {
         this._disconnect();
         this.emit('disconnect', msg);
     }
@@ -132,12 +146,36 @@ class Player extends EventEmitter {
     }
 
     /**
+     *
+     * @param {{band: number, gain: number}} options The bands range from 0 to 15 and the gain ranges from -0.25 to 1, 0 is the default gain.
+     * @memberof Player
+     */
+    setEQ(options : {band: number, gain: number}) {
+        this.node.send({
+            op: 'equalizer',
+            guildId: this.guildId,
+            bands: options,
+        });
+    }
+
+
+    /**
+     * destroy the player
+     */
+    destroy() {
+        this.node.send({
+            op: 'equalizer',
+            guildId: this.guildId
+        });
+    }
+
+    /**
      * Play a Lavalink track
      * @param {string} track The track to play
      * @param {Object} [options] Optional options to send
      * @returns {void}
      */
-    play(track, options) {
+    play(track: string, options?: object): void {
         this.lastTrack = this.track;
         this.track = track;
         this.playOptions = options;
@@ -162,7 +200,7 @@ class Player extends EventEmitter {
      * Stop playing
      * @returns {void}
      */
-    stop() {
+    stop(): void {
         let payload = {
             op: 'stop',
             guildId: this.guildId,
@@ -179,7 +217,7 @@ class Player extends EventEmitter {
      * @param {Object} state The state object received from Lavalink
      * @private
      */
-    stateUpdate(state) {
+    stateUpdate(state: object) {
         this.state = state;
     }
 
@@ -188,7 +226,7 @@ class Player extends EventEmitter {
      * @param {boolean} pause Set pause to true/false
      * @returns {void}
      */
-    setPause(pause) {
+    setPause(pause: boolean): void {
         this.node.send({
             op: 'pause',
             guildId: this.guildId,
@@ -222,7 +260,7 @@ class Player extends EventEmitter {
      * @param {number} position The position to seek to
      * @returns {void}
      */
-    seek(position) {
+    seek(position: number): void {
         this.node.send({
             op: 'seek',
             guildId: this.guildId,
@@ -235,7 +273,7 @@ class Player extends EventEmitter {
      * @param {number} volume The volume level to set
      * @returns {void}
      */
-    setVolume(volume) {
+    setVolume(volume: number): void {
         this.node.send({
             op: 'volume',
             guildId: this.guildId,
@@ -248,7 +286,7 @@ class Player extends EventEmitter {
      * @param {Object} message The end reason
      * @private
      */
-    onTrackEnd(message) {
+    onTrackEnd(message: {reason: string}) {
         if (message.reason !== 'REPLACED') {
             this.playing = false;
             this.lastTrack = this.track;
@@ -262,7 +300,7 @@ class Player extends EventEmitter {
      * @param {Object} message The exception encountered
      * @private
      */
-    onTrackException(message) {
+    onTrackException(message: object) {
         this.emit('error', message);
     }
 
@@ -271,7 +309,7 @@ class Player extends EventEmitter {
      * @param {Object} message The message if exists
      * @private
      */
-    onTrackStuck(message) {
+    onTrackStuck(message: object) {
         this.stop();
         process.nextTick(() => this.emit('end', message));
     }
@@ -282,7 +320,7 @@ class Player extends EventEmitter {
      * @param {boolean} [reactive] Used if you want the bot to switch channels
      * @returns {void}
      */
-    switchChannel(channelId, reactive) {
+    switchChannel(channelId: string, reactive?: boolean): void {
         if(this.channelId === channelId) {
             return;
         }
@@ -303,7 +341,7 @@ class Player extends EventEmitter {
      * @param {boolean} selfDeaf Whether the bot deafened itself or not (audio receiving is unaffected)
      * @private
      */
-    updateVoiceState(channelId, selfMute, selfDeaf) {
+    updateVoiceState(channelId: string, selfMute?: boolean, selfDeaf?: boolean) {
         if (this.shard.sendWS) {
             this.shard.sendWS(Constants.GatewayOPCodes.VOICE_STATE_UPDATE, {
                 guild_id: this.id === 'call' ? null : this.id,
@@ -315,4 +353,4 @@ class Player extends EventEmitter {
     }
 }
 
-module.exports = Player;
+export default Player;

@@ -1,53 +1,5 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Lavalink.js - Documentation</title>
-
-    <script src="scripts/prettify/prettify.js"></script>
-    <script src="scripts/prettify/lang-css.js"></script>
-    <!--[if lt IE 9]>
-      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
-    <![endif]-->
-    <link type="text/css" rel="stylesheet" href="styles/prettify.css">
-    <link type="text/css" rel="stylesheet" href="styles/jsdoc.css">
-</head>
-<body>
-
-<input type="checkbox" id="nav-trigger" class="nav-trigger" />
-<label for="nav-trigger" class="navicon-button x">
-  <div class="navicon"></div>
-</label>
-
-<label for="nav-trigger" class="overlay"></label>
-
-<nav>
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="Lavalink.html">Lavalink</a><ul class='methods'><li data-type='method'><a href="Lavalink.html#destroy">destroy</a></li><li data-type='method'><a href="Lavalink.html#send">send</a></li></ul></li><li><a href="Player.html">Player</a><ul class='methods'><li data-type='method'><a href="Player.html#connect">connect</a></li><li data-type='method'><a href="Player.html#disconnect">disconnect</a></li><li data-type='method'><a href="Player.html#play">play</a></li><li data-type='method'><a href="Player.html#seek">seek</a></li><li data-type='method'><a href="Player.html#setPause">setPause</a></li><li data-type='method'><a href="Player.html#setVolume">setVolume</a></li><li data-type='method'><a href="Player.html#stop">stop</a></li><li data-type='method'><a href="Player.html#switchChannel">switchChannel</a></li></ul></li><li><a href="PlayerManager.html">PlayerManager</a><ul class='methods'><li data-type='method'><a href="PlayerManager.html#createNode">createNode</a></li><li data-type='method'><a href="PlayerManager.html#join">join</a></li><li data-type='method'><a href="PlayerManager.html#leave">leave</a></li><li data-type='method'><a href="PlayerManager.html#removeNode">removeNode</a></li><li data-type='method'><a href="PlayerManager.html#switchNode">switchNode</a></li></ul></li></ul>
-</nav>
-
-<div id="main">
-    
-    <h1 class="page-title">Lavalink.js</h1>
-    
-
-    
-
-
-
-    
-    <section>
-        <article>
-            <pre class="prettyprint source linenums"><code>'use strict';
-
-const WebSocket = require('ws');
-
-var EventEmitter;
-
-try {
-	EventEmitter = require('eventemitter3');
-} catch (err) {
-	EventEmitter = require('events').EventEmitter;
-}
+import WebSocket from "ws";
+import { EventEmitter } from "events";
 
 /**
  * Represents a Lavalink node
@@ -64,6 +16,23 @@ try {
  * @prop {object} stats The Lavalink node stats
  */
 class Lavalink extends EventEmitter {
+
+	address: string
+	port: number
+	region: string
+	host: string
+	numShards: number
+	userId: string
+	password: string
+	connected: boolean
+	draining: boolean
+	retries: number
+	reconnectTimeout: number
+	stats: {players?: number, playingPlayers?: number, cpu?: { systemLoad: number, cores: number} }
+	ws: WebSocket
+	reconnectInterval: NodeJS.Timeout
+	disconnectHandler: () => void;
+
 	/**
 	 * Lavalink constructor
 	 * @param {Object} options Lavalink node options
@@ -75,7 +44,7 @@ class Lavalink extends EventEmitter {
      * @param {string} options.password The password for the Lavalink node
 	 * @param {number} [options.timeout=5000] Optional timeout in ms used for the reconnect backoff
 	 */
-	constructor(options) {
+	constructor(options:  {host: string, port: number, region: string, numShards: number, userId: string, password: string, timeout?: number}) {
 		super();
 
 		this.host = options.host;
@@ -101,13 +70,12 @@ class Lavalink extends EventEmitter {
 	 * @private
 	 */
 	connect() {
-		this.ws = new WebSocket(this.address, {
-			headers: {
-				'Authorization': this.password,
-				'Num-Shards': this.numShards,
-				'User-Id': this.userId,
-			},
-		});
+		//@ts-ignore
+		this.ws = new WebSocket(this.address, {headers: {
+			'Authorization': this.password,
+			'Num-Shards': this.numShards,
+			'User-Id': this.userId,
+		}});
 
 		this.ws.on('open', this.ready.bind(this));
 		this.ws.on('message', this.onMessage.bind(this));
@@ -154,10 +122,9 @@ class Lavalink extends EventEmitter {
 	}
 
 	/**
-	 * Called when the websocket disconnects
-	 * @private
-	 */
-	disconnected() {
+	 * Called when the websocket disconnects	 
+	*/
+	 private disconnected() {
 		this.connected = false;
 		if (!this.reconnectInterval) {
 			this.emit('disconnect');
@@ -174,17 +141,16 @@ class Lavalink extends EventEmitter {
 	 * Get the retry interval
 	 * @private
 	 */
-	retryInterval() {
+	private retryInterval() {
 		let retries = Math.min(this.retries-1, 5);
 		return Math.pow(retries + 5, 2) * 1000;
 	}
 
 	/**
 	 * Send data to Lavalink
-	 * @param {string} op Op name
 	 * @param {*} data Data to send
 	 */
-	send(data) {
+	send(data: any) {
 		const ws = this.ws;
 		if (!ws) return;
 
@@ -193,7 +159,6 @@ class Lavalink extends EventEmitter {
 		} catch (err) {
 			return this.emit('error', 'Unable to stringify payload.');
 		}
-
 		ws.send(payload);
 	}
 
@@ -202,14 +167,14 @@ class Lavalink extends EventEmitter {
 	 * @param {string} message Raw websocket message
 	 * @private
 	 */
-	onMessage(message) {
+	private onMessage(message: string) {
 		try {
 			var data = JSON.parse(message);
 		} catch (e) {
 			return this.emit('error', 'Unable to parse ws message.');
 		}
 
-		if (data.op &amp;&amp; data.op === 'stats') {
+		if (data.op && data.op === 'stats') {
 			this.stats = data;
 		}
 
@@ -217,23 +182,4 @@ class Lavalink extends EventEmitter {
 	}
 }
 
-module.exports = Lavalink;
-</code></pre>
-        </article>
-    </section>
-
-
-
-
-</div>
-
-<br class="clear">
-
-<footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 01 2018 08:16:30 GMT-0500 (EST) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
-</footer>
-
-<script>prettyPrint();</script>
-<script src="scripts/linenumber.js"></script>
-</body>
-</html>
+export default Lavalink;

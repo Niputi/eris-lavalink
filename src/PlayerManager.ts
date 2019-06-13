@@ -1,50 +1,12 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>PlayerManager.js - Documentation</title>
-
-    <script src="scripts/prettify/prettify.js"></script>
-    <script src="scripts/prettify/lang-css.js"></script>
-    <!--[if lt IE 9]>
-      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
-    <![endif]-->
-    <link type="text/css" rel="stylesheet" href="styles/prettify.css">
-    <link type="text/css" rel="stylesheet" href="styles/jsdoc.css">
-</head>
-<body>
-
-<input type="checkbox" id="nav-trigger" class="nav-trigger" />
-<label for="nav-trigger" class="navicon-button x">
-  <div class="navicon"></div>
-</label>
-
-<label for="nav-trigger" class="overlay"></label>
-
-<nav>
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="Lavalink.html">Lavalink</a><ul class='methods'><li data-type='method'><a href="Lavalink.html#destroy">destroy</a></li><li data-type='method'><a href="Lavalink.html#send">send</a></li></ul></li><li><a href="Player.html">Player</a><ul class='methods'><li data-type='method'><a href="Player.html#connect">connect</a></li><li data-type='method'><a href="Player.html#disconnect">disconnect</a></li><li data-type='method'><a href="Player.html#play">play</a></li><li data-type='method'><a href="Player.html#seek">seek</a></li><li data-type='method'><a href="Player.html#setPause">setPause</a></li><li data-type='method'><a href="Player.html#setVolume">setVolume</a></li><li data-type='method'><a href="Player.html#stop">stop</a></li><li data-type='method'><a href="Player.html#switchChannel">switchChannel</a></li></ul></li><li><a href="PlayerManager.html">PlayerManager</a><ul class='methods'><li data-type='method'><a href="PlayerManager.html#createNode">createNode</a></li><li data-type='method'><a href="PlayerManager.html#join">join</a></li><li data-type='method'><a href="PlayerManager.html#leave">leave</a></li><li data-type='method'><a href="PlayerManager.html#removeNode">removeNode</a></li><li data-type='method'><a href="PlayerManager.html#switchNode">switchNode</a></li></ul></li></ul>
-</nav>
-
-<div id="main">
-    
-    <h1 class="page-title">PlayerManager.js</h1>
-    
-
-    
-
-
-
-    
-    <section>
-        <article>
-            <pre class="prettyprint source linenums"><code>/**
- * Created by Julian &amp; NoobLance on 25.05.2017.
+/**
+ * Created by Julian & NoobLance on 25.05.2017.
  * DISCLAIMER: We reuse some eris code
  */
 
-const { Collection } = require('eris');
-const Lavalink = require('./Lavalink');
-const Player = require('./Player');
+import { Client } from "eris";
+import Lavalink from "./Lavalink";
+import Player from "./Player";
+
 
 /**
  * Player Manager
@@ -54,7 +16,20 @@ const Player = require('./Player');
  * @prop {object} defaultRegions The default region config
  * @prop {object} regions The region config being used
  */
-class PlayerManager extends Collection {
+class PlayerManager {
+    client: Client;
+    players: Map<string, Player>
+    nodes: Map<string | number, Lavalink>;
+    options: any;
+    pendingGuilds: {[s: string]: { channelId: string, hostname?: string, options: Object | {}, player: Player | null, node: Lavalink, res: (value?: Player | PromiseLike<Player>) => void, rej: any, timeout: NodeJS.Timeout }};
+    defaultRegions: { asia: string[]; eu: string[]; us: string[]; };
+    shardReadyListener: (id: number) => void;
+    failoverQueue: Function[];
+    failoverRate: number;
+    failoverLimit: number;
+    regions: { [s: string]: string[]; };
+
+    
     /**
      * PlayerManager constructor
      * @param {Client} client Eris client
@@ -67,11 +42,11 @@ class PlayerManager extends Collection {
      * @param {number} [options.reconnectThreshold=2000] The amount of time to skip ahead in a song when reconnecting in ms
      * @param {Object} [options.regions] Region mapping object
      */
-    constructor(client, nodes, options) {
-        super(options.player || Player);
+    constructor(client : Client, nodes: {host: string, port: number, region: string, password: string }[], options?: { defaultRegion?: string, failoverRate?: number, failoverLimit?: number, player?: Player, reconnectThreshold?: number, regions: {[s: string]: string[]} }) {
 
         this.client = client;
-        this.nodes = new Collection();
+        this.nodes = new Map();
+        this.players = new Map();
         this.pendingGuilds = {};
         this.options = options || {};
         this.failoverQueue = [];
@@ -87,6 +62,7 @@ class PlayerManager extends Collection {
         this.regions = options.regions || this.defaultRegions;
 
         for (let node of nodes) {
+            //@ts-ignore
             this.createNode(Object.assign({}, node, options));
         }
 
@@ -105,7 +81,7 @@ class PlayerManager extends Collection {
      * @param {string} options.password The password for the Lavalink node
      * @returns {void}
      */
-    createNode(options) {
+    createNode(options: {host: string, port: number, region: string, numShards: number, userId: string, password: string }): void {
         let node = new Lavalink({
             host: options.host,
             port: options.port,
@@ -127,7 +103,7 @@ class PlayerManager extends Collection {
      * @param {string} host The hostname of the node
      * @returns {void}
      */
-    removeNode(host) {
+    removeNode(host: string): void {
         let node = this.nodes.get(host);
         if (!host) return;
         node.destroy();
@@ -153,7 +129,7 @@ class PlayerManager extends Collection {
      * @param {Function} fn The failover function to queue
      * @private
      */
-    queueFailover(fn) {
+    queueFailover(fn: Function) {
         if (this.failoverQueue.length > 0) {
             this.failoverQueue.push(fn);
         } else {
@@ -166,29 +142,27 @@ class PlayerManager extends Collection {
      * @param {Function} fn The failover function to call
      * @private
      */
-    processQueue(fn) {
+    processQueue(fn: Function) {
         fn();
         setTimeout(() => this.checkFailoverQueue(), this.failoverRate);
     }
 
     /**
      * Called when an error is received from a Lavalink node
-     * @param {Lavalink} node The Lavalink node
      * @param {string|Error} err The error received
      * @private
      */
-    onError(node, err) {
-        this.client.emit(err);
+    onError(err: string | Error | Lavalink) {
+        this.client.emit('error', err);
     }
 
     /**
      * Called when a node disconnects
      * @param {Lavalink} node The Lavalink node
-     * @param {*} msg The disconnect message if sent
      * @private
      */
-    onDisconnect(node, msg) {
-        let players = this.filter(player => player.node.host === node.host);
+    onDisconnect(node: Lavalink) {
+        let players = Array.from(this.players.values()).filter(player => player.node.host === node.host);
         for (let player of players) {
             this.queueFailover(this.switchNode.bind(this, player, true));
         }
@@ -199,8 +173,8 @@ class PlayerManager extends Collection {
      * @param {number} id Shard ID
      * @private
      */
-    shardReady(id) {
-        let players = this.filter(player => player.shard &amp;&amp; player.shard.id === id);
+    shardReady(id: number) {
+        let players = Array.from(this.players.values()).filter(player => player.shard.id && player.shard.id === id);
         for (let player of players) {
             this.queueFailover(this.switchNode.bind(this, player));
         }
@@ -212,16 +186,17 @@ class PlayerManager extends Collection {
      * @param {boolean} leave Whether to leave the channel or not on our side
      * @returns {void}
      */
-    switchNode(player, leave) {
-        let { guildId, channelId, track } = player,
+    switchNode(player: Player, leave?: boolean): void {
+        let { guildId, channelId, track, paused } = player,
             position = (player.state.position || 0) + (this.options.reconnectThreshold || 2000);
 
         let listeners = player.listeners('end'),
-            endListeners = [];
+            endListeners : any[] = [];
 
-        if (listeners &amp;&amp; listeners.length) {
+        if (listeners && listeners.length) {
             for (let listener of listeners) {
                 endListeners.push(listener);
+                //@ts-ignore
                 player.removeListener('end', listener);
             }
         }
@@ -232,24 +207,24 @@ class PlayerManager extends Collection {
             }
         });
 
-        this.delete(guildId);
+        this.players.delete(guildId);
 
         player.playing = false;
 
         if (leave) {
             player.updateVoiceState(null);
-        } else {
-            player.node.send({ op: 'disconnect', guildId: guildId });
         }
 
         process.nextTick(() => {
             this.join(guildId, channelId, null, player).then(player => {
+                if (paused) {
+                    player.pause();
+                }
                 player.play(track, { startTime: position });
                 player.emit('reconnect');
-                this.set(guildId, player);
+                this.players.set(guildId, player);
             })
-            .catch(err => {
-                player.emit('disconnect', err);
+            .catch(() => {
                 player.disconnect();
             });
         });
@@ -257,77 +232,21 @@ class PlayerManager extends Collection {
 
     /**
      * Called when a message is received from the voice node
-     * @param {Lavalink} node The Lavalink node
      * @param {*} message The message received
      * @private
      */
-    onMessage(node, message) {
+    onMessage(message: any) {
         if (!message.op) return;
 
         switch (message.op) {
-            case 'validationReq': {
-                let payload = {
-                    op: 'validationRes',
-                    guildId: message.guildId,
-                };
-
-                let guildValid = false;
-                let channelValid = false;
-
-                if (message.guildId &amp;&amp; message.guildId.length) {
-                    guildValid = this.client.guilds.has(message.guildId);
-                } else {
-                    guildValid = true;
-                }
-
-                if (message.channelId &amp;&amp; message.channelId.length) {
-                    let voiceChannel = this.client.getChannel(message.channelId);
-                    if (voiceChannel) {
-                        payload.channelId = voiceChannel.id;
-                        channelValid = true;
-                    }
-                } else {
-                    channelValid = true;
-                }
-
-                payload.valid = guildValid &amp;&amp; channelValid;
-
-                return node.send(payload);
-            }
-            case 'isConnectedReq': {
-                let payload = {
-                    op: 'isConnectedRes',
-                    shardId: parseInt(message.shardId),
-                    connected: false,
-                };
-
-                let shard = this.client.shards.get(message.shardId);
-                if (shard &amp;&amp; (shard.status === 'connected' || shard.status === 'ready')) {
-                    payload.connected = true;
-                }
-
-                return node.send(payload);
-            }
-            case 'sendWS': {
-                let shard = this.client.shards.get(message.shardId);
-                if (shard === undefined) return;
-
-                const payload = JSON.parse(message.message);
-
-                shard.sendWS(payload.op, payload.d);
-
-                if (payload.op === 4 &amp;&amp; payload.d.channel_id === null) {
-                    this.delete(payload.d.guild_id);
-                }
-            }
             case 'playerUpdate': {
-                let player = this.get(message.guildId);
+                let player = this.players.get(message.guildId);
                 if (!player) return;
 
                 return player.stateUpdate(message.state);
             }
             case 'event': {
-                let player = this.get(message.guildId);
+                let player = this.players.get(message.guildId);
                 if (!player) return;
 
                 switch (message.type) {
@@ -350,19 +269,26 @@ class PlayerManager extends Collection {
      * @param {string} channelId The channel ID
      * @param {Object} options Join options
      * @param {Player} [player] Optionally pass an existing player
-     * @returns {Promise&lt;Player>}
+     * @returns {Promise<Player>}
      */
-    async join(guildId, channelId, options, player) {
+    async join(guildId: string, channelId: string, options: {node?: any, region?: string }, player: Player): Promise<Player> {
         options = options || {};
 
-        player = player || this.get(guildId);
-        if (player &amp;&amp; player.channelId !== channelId) {
+        player = player || this.players.get(guildId);
+        if (player && player.channelId !== channelId) {
             player.switchChannel(channelId);
             return Promise.resolve(player);
         }
 
-        let region = this.getRegionFromData(options.region || 'us');
-        let node = await this.findIdealNode(region);
+        let region, node: Lavalink;
+
+        if(options.node) {
+            node = this.nodes.get(options.node);
+            region = node.region;
+        } else {
+            region = this.getRegionFromData(options.region || 'us');
+            node = await this.findIdealNode(region);
+        }
 
         if (!node) {
             return Promise.reject('No available voice nodes.');
@@ -377,17 +303,10 @@ class PlayerManager extends Collection {
                 res: res,
                 rej: rej,
                 timeout: setTimeout(() => {
-                    node.send({ op: 'disconnect', guildId: guildId });
                     delete this.pendingGuilds[guildId];
                     rej(new Error('Voice connection timeout'));
                 }, 10000),
             };
-
-            node.send({
-                op: 'connect',
-                guildId: guildId,
-                channelId: channelId,
-            });
         });
     }
 
@@ -396,26 +315,26 @@ class PlayerManager extends Collection {
      * @param {string} guildId The guild ID
      * @returns {void}
      */
-    async leave(guildId) {
-        let player = this.get(guildId);
+    async leave(guildId: string): Promise<void> {
+        let player = this.players.get(guildId);
         if (!player) {
             return;
         }
-        player.disconnect();
-        this.delete(player);
+        player._disconnect();
+        this.players.delete(guildId);
     }
 
     /**
      * Find the ideal voice node based on load and region
      * @param {string} region Guild region
-     * @private
+     * @returns {Lavalink} node Node with the lowest load for a region
      */
-    async findIdealNode(region) {
-        let nodes = [...this.nodes.values()].filter(node => !node.draining &amp;&amp; node.ws &amp;&amp; node.connected);
+    async findIdealNode(region: string): Promise<Lavalink> {
+        let nodes = [...this.nodes.values()].filter(node => !node.draining && node.ws && node.connected);
 
         if (region) {
             let regionalNodes = nodes.filter(node => node.region === region);
-            if (regionalNodes &amp;&amp; regionalNodes.length) {
+            if (regionalNodes && regionalNodes.length) {
                 nodes = regionalNodes;
             }
         }
@@ -433,13 +352,13 @@ class PlayerManager extends Collection {
      * @param {*} data The voice server update from eris
      * @private
      */
-    async voiceServerUpdate(data) {
-        if (this.pendingGuilds[data.guild_id] &amp;&amp; this.pendingGuilds[data.guild_id].timeout) {
+    async voiceServerUpdate(data: any) : Promise<any | undefined> {
+        if (this.pendingGuilds[data.guild_id] && this.pendingGuilds[data.guild_id].timeout) {
             clearTimeout(this.pendingGuilds[data.guild_id].timeout);
             this.pendingGuilds[data.guild_id].timeout = null;
         }
 
-        let player = this.get(data.guild_id);
+        let player = this.players.get(data.guild_id);
         if (!player) {
             if (!this.pendingGuilds[data.guild_id]) {
                 return;
@@ -448,39 +367,49 @@ class PlayerManager extends Collection {
             player = this.pendingGuilds[data.guild_id].player;
 
             if (player) {
-                player.sessionId = data.sessionId;
+                //player.sessionId = data.session_id;
                 player.hostname = this.pendingGuilds[data.guild_id].hostname;
                 player.node = this.pendingGuilds[data.guild_id].node;
-                player.event = data;
-                this.set(data.guild_id, player);
+                //player.event = data;
+                this.players.set(data.guild_id, player);
+            } else {
+                player = new Player(data.guild_id, {
+                    shard: data.shard,
+                    guildId: data.guild_id,
+                    //sessionId: data.session_id,
+                    channelId: this.pendingGuilds[data.guild_id].channelId,
+                    hostname: this.pendingGuilds[data.guild_id].hostname,
+                    node: this.pendingGuilds[data.guild_id].node,
+                    options: this.pendingGuilds[data.guild_id].options,
+                    //event: data,
+                    manager: this,
+                });
+                this.players.set(data.guild_id, player);
             }
-
-            player = player || this.add(new this.baseObject(data.guild_id, {
-                shard: data.shard,
-                guildId: data.guild_id,
-                sessionId: data.session_id,
-                channelId: this.pendingGuilds[data.guild_id].channelId,
-                hostname: this.pendingGuilds[data.guild_id].hostname,
-                node: this.pendingGuilds[data.guild_id].node,
-                options: this.pendingGuilds[data.guild_id].options,
-                event: data,
-                manager: this,
-            }));
-
-            player.connect({
-                sessionId: data.session_id,
-                guildId: data.guild_id,
-                channelId: this.pendingGuilds[data.guild_id].channelId,
-                event: {
-                    endpoint: data.endpoint,
-                    guild_id: data.guild_id,
-                    token: data.token,
-                },
-            });
         }
 
+        const channelId = player.channelId || this.pendingGuilds[data.guild_id].channelId;
+        if (!channelId) {
+            if (this.pendingGuilds[data.guild_id]) {
+                delete this.pendingGuilds[data.guild_id];
+                return this.pendingGuilds[data.guild_id].rej(new Error('Invalid Channel ID'));
+            }
+            return;
+        }
+        
+        player.connect({
+            sessionId: data.session_id,
+            guildId: data.guild_id,
+            //channelId: channelId,
+            event: {
+                endpoint: data.endpoint,
+                guild_id: data.guild_id,
+                token: data.token,
+            },
+        });
+
         let disconnectHandler = () => {
-            player = this.get(data.guild_id);
+            player = this.players.get(data.guild_id);
             if (!this.pendingGuilds[data.guild_id]) {
                 if (player) {
                     player.removeListener('ready', readyHandler);
@@ -493,7 +422,7 @@ class PlayerManager extends Collection {
         };
 
         let readyHandler = () => {
-            player = this.get(data.guild_id);
+            player = this.players.get(data.guild_id);
             if (!this.pendingGuilds[data.guild_id]) {
                 if (player) {
                     player.removeListener('disconnect', disconnectHandler);
@@ -513,15 +442,15 @@ class PlayerManager extends Collection {
      * @param {string} endpoint Endpoint or region
      * @private
      */
-    getRegionFromData(endpoint) {
+    getRegionFromData(endpoint: string) {
         if (!endpoint) return this.options.defaultRegion || 'us';
 
         endpoint = endpoint.replace('vip-', '');
 
         for (let key in this.regions) {
-            let nodes = this.nodes.filter(n => n.region === key);
+            let nodes = Array.from(this.nodes.values()).filter(n => n.region === key);
             if (!nodes || !nodes.length) continue;
-            if (!nodes.find(n => n.connected &amp;&amp; !n.draining)) continue;
+            if (!nodes.find(n => n.connected && !n.draining)) continue;
             for (let region of this.regions[key]) {
                 if (endpoint.startsWith(region)) {
                     return key;
@@ -533,23 +462,4 @@ class PlayerManager extends Collection {
     }
 }
 
-module.exports = PlayerManager;
-</code></pre>
-        </article>
-    </section>
-
-
-
-
-</div>
-
-<br class="clear">
-
-<footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 01 2018 08:16:30 GMT-0500 (EST) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
-</footer>
-
-<script>prettyPrint();</script>
-<script src="scripts/linenumber.js"></script>
-</body>
-</html>
+export default PlayerManager;
